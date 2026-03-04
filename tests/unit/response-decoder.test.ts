@@ -203,11 +203,12 @@ describe('rebuildResponse — single union (non-list)', () => {
 
 describe('rebuildResponse — NULL_OBJECT in nested contexts', () => {
   it('null nested object inside list item', () => {
+    // Columnar: author column (per-item), then id column
     const values = [
       2,              // list length
-      'Alice', '100', // item 1: author.name, id
-      NULL_OBJECT,    // item 2: author is null
-      '101'           // item 2: id
+      'Alice',        // author col, item 0: author.name
+      NULL_OBJECT,    // author col, item 1: author is null
+      '100', '101'    // id col: item 0, item 1
     ]
     const tree = [[0, [[0, [6]], 3]]] as any
     const rebuilt = rebuildResponse(values, tree, 'Query', TEST_MANIFEST)

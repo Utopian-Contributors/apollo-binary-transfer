@@ -35,9 +35,10 @@ describe('flattenResponse — basics', () => {
       ]
     }
     // feed(0) → author(0)→{name(6)}, id(3), likes(4), title(6)
+    // Columnar: author col (per-item), id col, likes col, title col
     const tree = [[0, [[0, [6]], 3, 4, 6]]] as any
     const result = flattenResponse(data, tree, 'Query', TEST_MANIFEST)
-    expect(result).toEqual([2, 'Alice', '100', 42, 'Hello', 'Bob', '101', 17, 'Bye'])
+    expect(result).toEqual([2, 'Alice', 'Bob', '100', '101', 42, 17, 'Hello', 'Bye'])
   })
 
   it('empty list', () => {
@@ -68,6 +69,7 @@ describe('flattenResponse — basics', () => {
       feed: [{ id: '100', title: 'Hello', likes: 42 }]
     }
     // feed(0) → {id(3), likes(4), title(6)}; viewer(5) → {id(4), isAdmin(5), name(6)}
+    // Columnar: single-item list so same values, just columnar order
     const tree = [[0, [3, 4, 6]], [5, [4, 5, 6]]] as any
     const result = flattenResponse(data, tree, 'Query', TEST_MANIFEST)
     expect(result).toEqual([1, '100', 42, 'Hello', '1', true, 'Alice'])
