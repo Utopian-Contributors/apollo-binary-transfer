@@ -1,0 +1,67 @@
+{
+  "name": "apollo-binary-transfer",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./server": {
+      "types": "./dist/server/index.d.ts",
+      "import": "./dist/server/index.js",
+      "require": "./dist/server/index.cjs"
+    },
+    "./client": {
+      "types": "./dist/client/index.d.ts",
+      "import": "./dist/client/index.js",
+      "require": "./dist/client/index.cjs"
+    },
+    "./codegen": {
+      "types": "./dist/codegen/index.d.ts",
+      "import": "./dist/codegen/index.js",
+      "require": "./dist/codegen/index.cjs"
+    },
+    "./shared": {
+      "types": "./dist/shared/index.d.ts",
+      "import": "./dist/shared/index.js",
+      "require": "./dist/shared/index.cjs"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest --run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest --run --coverage",
+    "bench": "vitest bench"
+  },
+  "peerDependencies": {
+    "@apollo/server": "^4.0.0",
+    "@apollo/client": "^3.8.0",
+    "@graphql-codegen/plugin-helpers": "^5.0.0",
+    "graphql": "^16.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@apollo/server": { "optional": true },
+    "@apollo/client": { "optional": true },
+    "@graphql-codegen/plugin-helpers": { "optional": true }
+  },
+  "dependencies": {
+    "@msgpack/msgpack": "^3.0.0"
+  },
+  "devDependencies": {
+    "@apollo/server": "^4.11.0",
+    "@apollo/client": "^3.12.0",
+    "@graphql-codegen/plugin-helpers": "^5.1.0",
+    "@graphql-codegen/cli": "^5.0.0",
+    "graphql": "^16.9.0",
+    "graphql-tag": "^2.12.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0",
+    "tsup": "^8.0.0",
+    "express": "^4.21.0",
+    "@types/express": "^4.17.21",
+    "@vitest/coverage-v8": "^2.0.0"
+  }
+}
