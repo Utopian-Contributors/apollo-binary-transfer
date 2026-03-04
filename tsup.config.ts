@@ -10,13 +10,14 @@ export default defineConfig({
   ],
   format: ['esm', 'cjs'],
   dts: true,
-  splitting: true,
+  splitting: false,
   clean: true,
   treeshake: true,
   target: 'es2022',
   external: [
     '@apollo/server',
     '@apollo/client',
+    '@apollo/client/core',
     '@graphql-codegen/plugin-helpers',
     'graphql'
   ]

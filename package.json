@@ -1,7 +1,19 @@
 {
   "name": "apollo-binary-transfer",
-  "version": "1.0.0",
+  "version": "1.0.3",
   "type": "module",
+  "files": ["dist"],
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "typesVersions": {
+    "*": {
+      "server": ["./dist/server/index.d.ts"],
+      "client": ["./dist/client/index.d.ts"],
+      "codegen": ["./dist/codegen/index.d.ts"],
+      "shared": ["./dist/shared/index.d.ts"]
+    }
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
