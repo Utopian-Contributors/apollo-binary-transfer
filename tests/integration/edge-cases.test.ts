@@ -259,3 +259,94 @@ describe('edge cases — query shapes', () => {
     expect(result.data.search[1].__typename).toBe('User')
   })
 })
+
+describe('edge cases — variable name remapping (end-to-end)', () => {
+  it('client variable name different from schema arg name', async () => {
+    const q = gql`query GetUser($userId: ID!) {
+      user(id: $userId) { id name email }
+    }`
+    const result = await linkQuery(q, { userId: '1' })
+    expect(result.data.user.id).toBe('1')
+    expect(result.data.user.name).toBe('Alice')
+    expect(result.data.user.email).toBe('alice@example.com')
+  })
+
+  it('literal argument values round-trip correctly', async () => {
+    const q = gql`query { feed(limit: 1) { id title } }`
+    const result = await linkQuery(q)
+    expect(result.data.feed).toHaveLength(1)
+    expect(result.data.feed[0].title).toBe('Post 0')
+  })
+
+  it('nested variable remapping works end-to-end', async () => {
+    const q = gql`query($userId: ID!) {
+      user(id: $userId) {
+        id name
+        posts(limit: 1) { id title }
+      }
+    }`
+    const result = await linkQuery(q, { userId: '1' })
+    expect(result.data.user.id).toBe('1')
+    expect(result.data.user.name).toBe('Alice')
+    expect(result.data.user.posts).toBeInstanceOf(Array)
+  })
+
+  it('mutation with remapped input variable', async () => {
+    const q = gql`mutation($postInput: CreatePostInput!) {
+      createPost(input: $postInput) { id title body }
+    }`
+    const result = await linkQuery(q, {
+      postInput: { title: 'Remapped', body: 'Content', tags: [] }
+    })
+    expect(result.data.createPost.title).toBe('Remapped')
+    expect(result.data.createPost.body).toBe('Content')
+  })
+})
+
+describe('edge cases — arg name collision (counter-based variables)', () => {
+  it('two root fields with same arg name "id" get different values', async () => {
+    // This was the collision case: user(id:) and post(id:) both map to schema arg "id"
+    // With counter-based variables, user.id → v0, post.id → v1 — no collision
+    const q = gql`query($userId: ID!, $postId: ID!) {
+      user(id: $userId) { id name }
+      post(id: $postId) { id title }
+    }`
+    const result = await linkQuery(q, { userId: '1', postId: '100' })
+    expect(result.data.user.id).toBe('1')
+    expect(result.data.user.name).toBe('Alice')
+    expect(result.data.post.id).toBe('100')
+    expect(result.data.post.title).toBe('Hello World')
+  })
+
+  it('field with multiple args (limit + offset) both provided', async () => {
+    const q = gql`query($n: Int, $skip: Int) {
+      users(limit: $n, offset: $skip) { id name }
+    }`
+    const result = await linkQuery(q, { n: 1, skip: 0 })
+    expect(result.data.users).toHaveLength(1)
+    expect(result.data.users[0].name).toBe('Alice')
+  })
+
+  it('field with multiple args — only one provided', async () => {
+    const q = gql`query($n: Int) {
+      users(limit: $n) { id name }
+    }`
+    const result = await linkQuery(q, { n: 1 })
+    expect(result.data.users).toHaveLength(1)
+  })
+
+  it('mutation with renamed variable and collision on root args', async () => {
+    // updateUser has id: ID! and input: UpdateUserInput! args
+    // Use renamed variables to test counter-based remapping
+    const q = gql`mutation($uid: ID!, $data: UpdateUserInput!) {
+      updateUser(id: $uid, input: $data) { id name bio }
+    }`
+    const result = await linkQuery(q, {
+      uid: '1',
+      data: { name: 'Updated Alice', bio: 'New bio' }
+    })
+    expect(result.data.updateUser.id).toBe('1')
+    expect(result.data.updateUser.name).toBe('Updated Alice')
+    expect(result.data.updateUser.bio).toBe('New bio')
+  })
+})

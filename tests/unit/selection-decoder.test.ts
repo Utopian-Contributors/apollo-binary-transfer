@@ -134,24 +134,24 @@ describe('decodeSelection — argument reconstruction', () => {
     const { tree, operationType } = encodeSelection(GET_USER_SIMPLE, TEST_MANIFEST)
     const doc = decodeSelection(tree, operationType, TEST_MANIFEST)
     const queryString = print(doc)
-    expect(queryString).toContain('user(id: $id)')
-    expect(queryString).toContain('$id: ID!')
+    expect(queryString).toContain('user(id: $v0)')
+    expect(queryString).toContain('$v0: ID!')
   })
 
   it('single optional arg: feed(limit: Int)', () => {
     const { tree, operationType } = encodeSelection(GET_FEED, TEST_MANIFEST)
     const doc = decodeSelection(tree, operationType, TEST_MANIFEST)
     const queryString = print(doc)
-    expect(queryString).toContain('feed(limit: $limit)')
-    expect(queryString).toContain('$limit: Int')
+    expect(queryString).toContain('feed(limit: $v0)')
+    expect(queryString).toContain('$v0: Int')
   })
 
   it('mutation with input arg: createPost(input: CreatePostInput!)', () => {
     const { tree, operationType } = encodeSelection(CREATE_POST, TEST_MANIFEST)
     const doc = decodeSelection(tree, operationType, TEST_MANIFEST)
     const queryString = print(doc)
-    expect(queryString).toContain('createPost(input: $input)')
-    expect(queryString).toContain('$input: CreatePostInput!')
+    expect(queryString).toContain('createPost(input: $v0)')
+    expect(queryString).toContain('$v0: CreatePostInput!')
   })
 
   it('field with no args: viewer', () => {
@@ -168,7 +168,7 @@ describe('decodeSelection — argument reconstruction', () => {
     const doc = decodeSelection(tree, operationType, TEST_MANIFEST)
     const queryString = print(doc)
     // feed has limit arg, viewer has no args
-    expect(queryString).toContain('feed(limit: $limit)')
+    expect(queryString).toContain('feed(limit: $v')
     expect(queryString).not.toContain('viewer(')
   })
 
@@ -207,14 +207,13 @@ describe('decodeSelection — argument reconstruction', () => {
     expect(errors).toHaveLength(0)
   })
 
-  it('variable definitions are not duplicated for same arg across fields', () => {
-    // post(id: ID!) and deletePost(id: ID!) both use "id" arg
-    // If a query used both, the variable $id should appear once
+  it('each arg gets a unique counter-based variable name', () => {
+    // With counter-based naming, each arg occurrence gets its own variable
     const tree = [[3, [3, 4, 6]]] as any // user(id) → email, id, name
     const doc = decodeSelection(tree, 0, TEST_MANIFEST)
     const queryString = print(doc)
-    const matches = queryString.match(/\$id: ID!/g)
-    expect(matches).toHaveLength(1)
+    expect(queryString).toContain('$v0: ID!')
+    expect(queryString).toContain('user(id: $v0)')
   })
 
   it('type string parsing: list types', () => {
@@ -222,7 +221,7 @@ describe('decodeSelection — argument reconstruction', () => {
     const { tree, operationType } = encodeSelection(SEARCH_QUERY, TEST_MANIFEST)
     const doc = decodeSelection(tree, operationType, TEST_MANIFEST)
     const queryString = print(doc)
-    expect(queryString).toContain('$query: String!')
+    expect(queryString).toContain('$v0: String!')
   })
 })
 
@@ -244,8 +243,8 @@ describe('decodeSelection — parseTypeNode edge cases', () => {
     const tree = [0] as any
     const doc = decodeSelection(tree, 0, manifest)
     const qs = print(doc)
-    expect(qs).toContain('$x: String')
-    expect(qs).not.toContain('$x: String!')
+    expect(qs).toContain('$v0: String')
+    expect(qs).not.toContain('$v0: String!')
   })
 
   it('parses non-null type', () => {
@@ -264,7 +263,7 @@ describe('decodeSelection — parseTypeNode edge cases', () => {
     const tree = [0] as any
     const doc = decodeSelection(tree, 0, manifest)
     const qs = print(doc)
-    expect(qs).toContain('$x: ID!')
+    expect(qs).toContain('$v0: ID!')
   })
 
   it('parses list type [String]', () => {
@@ -283,7 +282,7 @@ describe('decodeSelection — parseTypeNode edge cases', () => {
     const tree = [0] as any
     const doc = decodeSelection(tree, 0, manifest)
     const qs = print(doc)
-    expect(qs).toContain('$x: [String]')
+    expect(qs).toContain('$v0: [String]')
   })
 
   it('parses non-null list of non-nulls [String!]!', () => {
@@ -302,7 +301,7 @@ describe('decodeSelection — parseTypeNode edge cases', () => {
     const tree = [0] as any
     const doc = decodeSelection(tree, 0, manifest)
     const qs = print(doc)
-    expect(qs).toContain('$tags: [String!]!')
+    expect(qs).toContain('$v0: [String!]!')
   })
 
   it('parses nested list [[Int]]', () => {
@@ -321,7 +320,7 @@ describe('decodeSelection — parseTypeNode edge cases', () => {
     const tree = [0] as any
     const doc = decodeSelection(tree, 0, manifest)
     const qs = print(doc)
-    expect(qs).toContain('$matrix: [[Int]]')
+    expect(qs).toContain('$v0: [[Int]]')
   })
 
   it('parses complex nested [[String!]!]!', () => {
@@ -340,7 +339,70 @@ describe('decodeSelection — parseTypeNode edge cases', () => {
     const tree = [0] as any
     const doc = decodeSelection(tree, 0, manifest)
     const qs = print(doc)
-    expect(qs).toContain('$data: [[String!]!]!')
+    expect(qs).toContain('$v0: [[String!]!]!')
+  })
+})
+
+describe('decodeSelection — counter-based variable collision resolution', () => {
+  it('two fields with same arg name get different variable names', () => {
+    // user(id:) and post(id:) in the same query — both have "id" arg
+    const doc = parse(`
+      query($userId: ID!, $postId: ID!) {
+        user(id: $userId) { id name }
+        post(id: $postId) { id title }
+      }
+    `)
+    const { tree, operationType } = encodeSelection(doc, TEST_MANIFEST)
+    const decoded = decodeSelection(tree, operationType, TEST_MANIFEST)
+    const qs = print(decoded)
+    // user gets v0, post gets v1
+    expect(qs).toContain('user(id: $v0)')
+    expect(qs).toContain('post(id: $v1)')
+    expect(qs).toContain('$v0: ID!')
+    expect(qs).toContain('$v1: ID!')
+  })
+
+  it('field with multiple args gets sequential counters', () => {
+    // users(limit, offset) → alphabetical: limit(v0), offset(v1)
+    const doc = parse(`
+      query($n: Int, $skip: Int) {
+        users(limit: $n, offset: $skip) { id name }
+      }
+    `)
+    const { tree, operationType } = encodeSelection(doc, TEST_MANIFEST)
+    const decoded = decodeSelection(tree, operationType, TEST_MANIFEST)
+    const qs = print(decoded)
+    expect(qs).toContain('users(limit: $v0, offset: $v1)')
+    expect(qs).toContain('$v0: Int')
+    expect(qs).toContain('$v1: Int')
+  })
+
+  it('nested args get counters that continue from parent', () => {
+    // user(id:) → v0, user.posts(limit:) → v1
+    const doc = parse(`
+      query($userId: ID!, $postCount: Int) {
+        user(id: $userId) { id posts(limit: $postCount) { id title } }
+      }
+    `)
+    const { tree, operationType } = encodeSelection(doc, TEST_MANIFEST)
+    const decoded = decodeSelection(tree, operationType, TEST_MANIFEST)
+    const qs = print(decoded)
+    expect(qs).toContain('user(id: $v0)')
+    expect(qs).toContain('posts(limit: $v1)')
+  })
+
+  it('decoded collision query validates against schema', () => {
+    const s = buildSchema(SCHEMA_SDL)
+    const doc = parse(`
+      query($userId: ID!, $postId: ID!) {
+        user(id: $userId) { id name }
+        post(id: $postId) { id title }
+      }
+    `)
+    const { tree, operationType } = encodeSelection(doc, TEST_MANIFEST)
+    const decoded = decodeSelection(tree, operationType, TEST_MANIFEST)
+    const errors = validate(s, decoded)
+    expect(errors).toHaveLength(0)
   })
 })
 

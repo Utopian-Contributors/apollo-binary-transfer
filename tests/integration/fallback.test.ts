@@ -83,7 +83,7 @@ describe('fallback — binary request with Accept: JSON gets JSON response', () 
     const { encode: msgpackEncode } = await import('@msgpack/msgpack')
 
     const { tree, operationType } = encodeSelection(GET_USER_SIMPLE, TEST_MANIFEST)
-    const requestBody = { s: tree, o: operationType, v: { id: '1' } }
+    const requestBody = { s: tree, o: operationType, v: { v0: '1' } }
 
     const res = await fetch(url, {
       method: 'POST',

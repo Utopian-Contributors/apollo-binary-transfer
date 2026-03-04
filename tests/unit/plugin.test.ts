@@ -106,7 +106,7 @@ describe('BinaryTransferPlugin — standard JSON passthrough', () => {
 describe('BinaryTransferPlugin — binary request decoding', () => {
   it('decodes binary request and executes query', async () => {
     const { tree, operationType } = encodeSelection(GET_USER_SIMPLE, serverManifest)
-    const rawBody = msgpackEncode({ s: tree, o: operationType, v: { id: '1' } })
+    const rawBody = msgpackEncode({ s: tree, o: operationType, v: { v0: '1' } })
 
     const result = await makeRequest({
       contentType: MIME_BINARY,
@@ -129,7 +129,7 @@ describe('BinaryTransferPlugin — binary request decoding', () => {
 describe('BinaryTransferPlugin — binary response encoding', () => {
   it('sets binary content-type when Accept includes binary', async () => {
     const { tree, operationType } = encodeSelection(GET_USER_SIMPLE, serverManifest)
-    const rawBody = msgpackEncode({ s: tree, o: operationType, v: { id: '1' } })
+    const rawBody = msgpackEncode({ s: tree, o: operationType, v: { v0: '1' } })
 
     const result = await makeRequest({
       contentType: MIME_BINARY,
@@ -165,7 +165,7 @@ describe('BinaryTransferPlugin — malformed binary request', () => {
 describe('BinaryTransferPlugin — no data skips binary encoding', () => {
   it('response without data stays JSON', async () => {
     const { tree, operationType } = encodeSelection(GET_USER_SIMPLE, serverManifest)
-    const rawBody = msgpackEncode({ s: tree, o: operationType, v: { id: '1' } })
+    const rawBody = msgpackEncode({ s: tree, o: operationType, v: { v0: '1' } })
 
     // Send a query that will produce a validation error (no data)
     const result = await makeRequest({
@@ -199,7 +199,7 @@ describe('BinaryTransferPlugin — maxErrorHeaderSize fallback', () => {
       // through executeHTTPGraphQLRequest. Instead, test the fallback by
       // verifying the server still returns binary when there are no errors.
       const { tree, operationType } = encodeSelection(GET_USER_SIMPLE, manifest)
-      const rawBody = msgpackEncode({ s: tree, o: operationType, v: { id: '1' } })
+      const rawBody = msgpackEncode({ s: tree, o: operationType, v: { v0: '1' } })
 
       const headers = new Map<string, string>()
       headers.set('content-type', MIME_BINARY)

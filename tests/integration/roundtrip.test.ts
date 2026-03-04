@@ -141,7 +141,7 @@ describe('roundtrip — basic queries via BinaryTransferLink', () => {
   })
 
   it('union query — correct types', async () => {
-    const result = await linkQuery(SEARCH_QUERY, { query: 'test' })
+    const result = await linkQuery(SEARCH_QUERY, { q: 'test' })
     expect(result.data.search).toHaveLength(2)
     const post = result.data.search[0]
     const user = result.data.search[1]
@@ -190,7 +190,7 @@ describe('roundtrip — basic queries via BinaryTransferLink', () => {
 describe('roundtrip — wire format verification', () => {
   it('binary request has no query text on the wire', async () => {
     const { tree, operationType } = encodeSelection(GET_USER_SIMPLE, TEST_MANIFEST)
-    const requestBody = { s: tree, o: operationType, v: { id: '1' } }
+    const requestBody = { s: tree, o: operationType, v: { v0: '1' } }
     const encoded = msgpackEncode(requestBody)
     // The encoded bytes should not contain the string "user" or "query"
     const asString = new TextDecoder().decode(encoded)
@@ -201,7 +201,7 @@ describe('roundtrip — wire format verification', () => {
   })
 
   it('binary response contains no field names', async () => {
-    const { res, tree, operationType } = await binaryRoundTrip(GET_USER_SIMPLE, { id: '1' })
+    const { res, tree, operationType } = await binaryRoundTrip(GET_USER_SIMPLE, { v0: '1' })
     expect(res.headers.get('content-type')).toBe(MIME_BINARY)
 
     const buffer = new Uint8Array(await res.arrayBuffer())
@@ -215,7 +215,7 @@ describe('roundtrip — wire format verification', () => {
   })
 
   it('binary response is smaller than JSON', async () => {
-    const { res: binaryRes } = await binaryRoundTrip(GET_FEED, { limit: 2 })
+    const { res: binaryRes } = await binaryRoundTrip(GET_FEED, { v0: 2 })
     const binaryBody = await binaryRes.arrayBuffer()
     const binarySize = binaryBody.byteLength
 
@@ -238,7 +238,7 @@ describe('roundtrip — wire format verification', () => {
   })
 
   it('response includes BT version and schema hash headers', async () => {
-    const { res } = await binaryRoundTrip(GET_USER_SIMPLE, { id: '1' })
+    const { res } = await binaryRoundTrip(GET_USER_SIMPLE, { v0: '1' })
     expect(res.headers.get(HEADER_BT_VERSION)).toBe('1')
     expect(res.headers.get(HEADER_SCHEMA_HASH)).toMatch(/^[0-9a-f]{16}$/)
   })
@@ -260,7 +260,7 @@ describe('roundtrip — __typename injection for cache normalization', () => {
   })
 
   it('__typename present on union members', async () => {
-    const result = await linkQuery(SEARCH_QUERY, { query: 'test' })
+    const result = await linkQuery(SEARCH_QUERY, { q: 'test' })
     for (const item of result.data.search) {
       expect(item.__typename).toBeDefined()
       expect(['Post', 'User']).toContain(item.__typename)

@@ -113,7 +113,7 @@ describe('BinaryTransferLink — request encoding', () => {
     const decoded = msgpackDecode(body) as any
     expect(decoded.s).toEqual(tree)
     expect(decoded.o).toBe(0)
-    expect(decoded.v).toEqual({ id: '1' })
+    expect(decoded.v).toEqual({ v0: '1' })
   })
 })
 
@@ -453,6 +453,288 @@ describe('BinaryTransferLink — union alias extraction', () => {
     expect(result.data.search[0].postTitle).toBe('Hello')
     expect(result.data.search[1].userId).toBe('1')
     expect(result.data.search[1].userName).toBe('Alice')
+  })
+})
+
+describe('BinaryTransferLink — variable remapping', () => {
+  it('remaps variable names from query declarations to schema arg names', async () => {
+    // Query uses $userId but schema arg is "id"
+    const doc = parse(`
+      query GetUser($userId: ID!) {
+        user(id: $userId) { id name email }
+      }
+    `)
+    const { tree } = encodeSelection(doc, TEST_MANIFEST)
+    const mockFetch = createMockFetch(
+      { user: { id: '1', name: 'Alice', email: 'alice@example.com' } },
+      tree
+    )
+
+    const link = new BinaryTransferLink({
+      uri: '/graphql',
+      manifest: TEST_MANIFEST,
+      fetch: mockFetch
+    })
+
+    await new Promise<void>((resolve, reject) => {
+      link.request({ query: doc, variables: { userId: '1' } } as any)!
+        .subscribe({ next() {}, complete: resolve, error: reject })
+    })
+
+    const body = mockFetch.mock.calls[0][1].body
+    const decoded = msgpackDecode(body) as any
+    // Variable should be remapped: userId → v0 (counter-based)
+    expect(decoded.v).toEqual({ v0: '1' })
+  })
+
+  it('extracts literal argument values into variables', async () => {
+    const doc = parse(`
+      query { feed(limit: 5) { id title } }
+    `)
+    const { tree } = encodeSelection(doc, TEST_MANIFEST)
+    const mockFetch = createMockFetch(
+      { feed: [{ id: '1', title: 'Test' }] },
+      tree
+    )
+
+    const link = new BinaryTransferLink({
+      uri: '/graphql',
+      manifest: TEST_MANIFEST,
+      fetch: mockFetch
+    })
+
+    await new Promise<void>((resolve, reject) => {
+      link.request({ query: doc, variables: {} } as any)!
+        .subscribe({ next() {}, complete: resolve, error: reject })
+    })
+
+    const body = mockFetch.mock.calls[0][1].body
+    const decoded = msgpackDecode(body) as any
+    // Literal 5 should be extracted into variables as v0
+    expect(decoded.v).toEqual({ v0: 5 })
+  })
+
+  it('remaps union query variable names', async () => {
+    const doc = parse(`
+      query($q: String!) {
+        search(query: $q) {
+          ... on Post { id title }
+          ... on User { id name }
+        }
+      }
+    `)
+    const { tree } = encodeSelection(doc, TEST_MANIFEST)
+    const mockFetch = createMockFetch(
+      { search: [
+        { __typename: 'Post', id: '100', title: 'Hello' },
+        { __typename: 'User', id: '1', name: 'Alice' }
+      ] },
+      tree
+    )
+
+    const link = new BinaryTransferLink({
+      uri: '/graphql',
+      manifest: TEST_MANIFEST,
+      fetch: mockFetch
+    })
+
+    await new Promise<void>((resolve, reject) => {
+      link.request({ query: doc, variables: { q: 'test' } } as any)!
+        .subscribe({ next() {}, complete: resolve, error: reject })
+    })
+
+    const body = mockFetch.mock.calls[0][1].body
+    const decoded = msgpackDecode(body) as any
+    // $q should be remapped to v0 (counter-based)
+    expect(decoded.v).toEqual({ v0: 'test' })
+  })
+
+  it('handles nested arg remapping', async () => {
+    // User.posts has a "limit" arg
+    const doc = parse(`
+      query($userId: ID!, $postCount: Int) {
+        user(id: $userId) { id posts(limit: $postCount) { id title } }
+      }
+    `)
+    const { tree } = encodeSelection(doc, TEST_MANIFEST)
+    const mockFetch = createMockFetch(
+      { user: { id: '1', posts: [{ id: '100', title: 'Hello' }] } },
+      tree
+    )
+
+    const link = new BinaryTransferLink({
+      uri: '/graphql',
+      manifest: TEST_MANIFEST,
+      fetch: mockFetch
+    })
+
+    await new Promise<void>((resolve, reject) => {
+      link.request({ query: doc, variables: { userId: '1', postCount: 5 } } as any)!
+        .subscribe({ next() {}, complete: resolve, error: reject })
+    })
+
+    const body = mockFetch.mock.calls[0][1].body
+    const decoded = msgpackDecode(body) as any
+    // user.id → v0, user.posts.limit → v1
+    expect(decoded.v).toEqual({ v0: '1', v1: 5 })
+  })
+
+  it('extracts literal string value from AST', async () => {
+    const doc = parse(`
+      query { user(id: "alice-123") { id name } }
+    `)
+    const { tree } = encodeSelection(doc, TEST_MANIFEST)
+    const mockFetch = createMockFetch(
+      { user: { id: 'alice-123', name: 'Alice' } },
+      tree
+    )
+
+    const link = new BinaryTransferLink({
+      uri: '/graphql',
+      manifest: TEST_MANIFEST,
+      fetch: mockFetch
+    })
+
+    await new Promise<void>((resolve, reject) => {
+      link.request({ query: doc, variables: {} } as any)!
+        .subscribe({ next() {}, complete: resolve, error: reject })
+    })
+
+    const body = mockFetch.mock.calls[0][1].body
+    const decoded = msgpackDecode(body) as any
+    expect(decoded.v).toEqual({ v0: 'alice-123' })
+  })
+
+  it('passes through variables that already match arg names', async () => {
+    const { tree } = encodeSelection(GET_USER_SIMPLE, TEST_MANIFEST)
+    const mockFetch = createMockFetch(
+      { user: { id: '1', name: 'Alice', email: 'alice@example.com' } },
+      tree
+    )
+
+    const link = new BinaryTransferLink({
+      uri: '/graphql',
+      manifest: TEST_MANIFEST,
+      fetch: mockFetch
+    })
+
+    await new Promise<void>((resolve, reject) => {
+      link.request({ query: GET_USER_SIMPLE, variables: { id: '1' } } as any)!
+        .subscribe({ next() {}, complete: resolve, error: reject })
+    })
+
+    const body = mockFetch.mock.calls[0][1].body
+    const decoded = msgpackDecode(body) as any
+    // id → v0 (counter-based naming regardless of original name)
+    expect(decoded.v).toEqual({ v0: '1' })
+  })
+})
+
+describe('BinaryTransferLink — collision resolution', () => {
+  it('two fields with same schema arg name get unique counter-based variables', async () => {
+    // Both user(id:) and post(id:) have schema arg "id" — old approach would collide
+    const doc = parse(`
+      query($userId: ID!, $postId: ID!) {
+        user(id: $userId) { id name }
+        post(id: $postId) { id title }
+      }
+    `)
+    const { tree } = encodeSelection(doc, TEST_MANIFEST)
+
+    // We need mock data that matches both user and post sub-selections
+    // user tree: [4, 6] (id, name), post tree: [3, 6] (id, title)
+    const mockFetch = createMockFetch(
+      { user: { id: '1', name: 'Alice' }, post: { id: '100', title: 'Hello' } },
+      tree
+    )
+
+    const link = new BinaryTransferLink({
+      uri: '/graphql',
+      manifest: TEST_MANIFEST,
+      fetch: mockFetch
+    })
+
+    await new Promise<void>((resolve, reject) => {
+      link.request({
+        query: doc,
+        variables: { userId: 'user-1', postId: 'post-100' }
+      } as any)!
+        .subscribe({ next() {}, complete: resolve, error: reject })
+    })
+
+    const body = mockFetch.mock.calls[0][1].body
+    const decoded = msgpackDecode(body) as any
+    // user.id → v0, post.id → v1 — no collision!
+    expect(decoded.v.v0).toBe('user-1')
+    expect(decoded.v.v1).toBe('post-100')
+  })
+
+  it('field with multiple args assigns sequential counters', async () => {
+    // users(limit: Int, offset: Int) — both args get unique names
+    const doc = parse(`
+      query($n: Int, $skip: Int) {
+        users(limit: $n, offset: $skip) { id name }
+      }
+    `)
+    const { tree } = encodeSelection(doc, TEST_MANIFEST)
+    const mockFetch = createMockFetch(
+      { users: [{ id: '1', name: 'Alice' }] },
+      tree
+    )
+
+    const link = new BinaryTransferLink({
+      uri: '/graphql',
+      manifest: TEST_MANIFEST,
+      fetch: mockFetch
+    })
+
+    await new Promise<void>((resolve, reject) => {
+      link.request({
+        query: doc,
+        variables: { n: 10, skip: 20 }
+      } as any)!
+        .subscribe({ next() {}, complete: resolve, error: reject })
+    })
+
+    const body = mockFetch.mock.calls[0][1].body
+    const decoded = msgpackDecode(body) as any
+    // users args alphabetical: limit(v0), offset(v1)
+    expect(decoded.v.v0).toBe(10)
+    expect(decoded.v.v1).toBe(20)
+  })
+
+  it('unprovided optional args are skipped in values but still counted', async () => {
+    // users(limit: Int, offset: Int) but only limit provided
+    const doc = parse(`
+      query($n: Int) {
+        users(limit: $n) { id name }
+      }
+    `)
+    const { tree } = encodeSelection(doc, TEST_MANIFEST)
+    const mockFetch = createMockFetch(
+      { users: [{ id: '1', name: 'Alice' }] },
+      tree
+    )
+
+    const link = new BinaryTransferLink({
+      uri: '/graphql',
+      manifest: TEST_MANIFEST,
+      fetch: mockFetch
+    })
+
+    await new Promise<void>((resolve, reject) => {
+      link.request({
+        query: doc,
+        variables: { n: 10 }
+      } as any)!
+        .subscribe({ next() {}, complete: resolve, error: reject })
+    })
+
+    const body = mockFetch.mock.calls[0][1].body
+    const decoded = msgpackDecode(body) as any
+    // limit → v0 (provided), offset → v1 (counter increments but no value set)
+    expect(decoded.v.v0).toBe(10)
+    expect(decoded.v.v1).toBeUndefined()
   })
 })
 
