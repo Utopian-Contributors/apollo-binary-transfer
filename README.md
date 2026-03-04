@@ -14,11 +14,13 @@ Standard GraphQL sends field names in both directions:
 With binary transfer, both sides share a **manifest**: a schema position map where fields are identified by their alphabetical sort index within each type. Requests send integer field indices, responses send flat value arrays:
 
 ```
-→  msgpack({ s: [[3, [3, 4, 6]]], o: 0, v: { id: "1" } })    // 29 bytes
+→  msgpack({ s: [[3, [3, 4, 6]]], o: 0, v: { v0: "1" } })    // 29 bytes
 ←  msgpack(["alice@example.com", "1", "Alice"])                 // 32 bytes
 ```
 
-**Request reduction: 79–85%. Response reduction: 59–91%** (depending on query shape and list length).
+Variables use counter-based naming (`v0`, `v1`, ...) to avoid collisions when multiple fields share the same argument name.
+
+**Request reduction: 79–85%. Response reduction: 15–64%** (depending on query shape and payload diversity).
 
 ## Setup
 
@@ -140,21 +142,35 @@ Regenerate the manifest when you see these warnings.
 
 ## Performance characteristics
 
-### Wire size reduction
+### Wire size reduction (uncompressed)
 
 | Query shape | Request | Response |
 |---|---|---|
-| Micro (3 fields) | -79% | -59% |
-| Small (8 fields, nested) | -83% | -70% |
-| Medium list (20 items) | -83% | -73% |
-| Large list (100 items) | -85% | -78% |
-| Stress (1000 items) | -85% | -91% |
+| Micro (3 fields) | -81% | -37% |
+| Small (8 fields, nested) | -85% | -21% |
+| Medium list (20 items) | -83% | -33% |
+| Large list (100 items) | -83% | -32% |
+| Stress (1000 items) | -82% | -16% |
+
+### Wire size with gzip
+
+With gzip enabled (standard in production), the response savings are smaller because gzip already compresses repeated field names well:
+
+| Query shape | JSON+gzip | Binary+gzip | Additional savings |
+|---|---|---|---|
+| Micro (3 fields) | 122B | 92B | -25% |
+| Small (8 fields, nested) | 461B | 402B | -13% |
+| Medium list (20 items) | 1177B | 1134B | -4% |
+| Large list (100 items) | 4136B | 4066B | -2% |
+| Stress (1000 items) | 40144B | 35735B | -11% |
+
+The binary protocol's advantage compounds with gzip on small payloads (where gzip header overhead hurts JSON) and on stress-scale responses. For mid-size list responses with gzip, the savings are modest.
 
 ### Why it's smaller
 
 **Requests:** Query text (`query { user(id: $id) { id name email } }`) is replaced by a flat integer array (`[[3, [3, 4, 6]]]`). Field names become single-byte indices. The larger and more complex the query, the bigger the savings.
 
-**Responses:** JSON keys (`"id"`, `"name"`, `"email"`) are eliminated entirely. The response is a flat value array in positional order: the client knows which value corresponds to which field from the shared manifest + selection tree. For large lists, this compounds: 100 items means 100x fewer key strings.
+**Responses:** JSON keys (`"id"`, `"name"`, `"email"`) are eliminated entirely. The response is a flat value array in positional order: the client knows which value corresponds to which field from the shared manifest + selection tree. List items use columnar encoding — all values of the same field are grouped together — which improves compression further.
 
 **Encoding:** msgpack is used for serialization, which is more compact than JSON for numbers, booleans, and binary data.
 
@@ -187,7 +203,7 @@ BinaryTransferPlugin({
 
 ```bash
 bun install
-bun run test           # 190 tests
+bun run test           # 211 tests
 bun run test:coverage  # Coverage report
 bun run bench          # Performance benchmarks
 bun run build          # Build ESM + CJS + DTS
