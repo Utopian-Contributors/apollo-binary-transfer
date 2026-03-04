@@ -1,10 +1,9 @@
-import { describe, bench } from 'vitest'
-import { encode as msgpackEncode } from '@msgpack/msgpack'
+import gql from 'graphql-tag'
+import { bench, describe } from 'vitest'
+import { encodeResponse } from '../../src/shared/response-encoder'
 import { encodeSelection } from '../../src/shared/selection-encoder'
-import { flattenResponse, encodeResponse } from '../../src/shared/response-encoder'
 import { TEST_MANIFEST } from '../fixtures/manifest'
 import { TIERS } from './fixtures'
-import gql from 'graphql-tag'
 
 // Pre-compute selection tree for feed query
 const feedQuery = TIERS.mediumList.query
