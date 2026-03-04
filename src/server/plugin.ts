@@ -3,7 +3,7 @@ import type {
   GraphQLRequestListener,
   BaseContext
 } from '@apollo/server'
-import { print } from 'graphql'
+import { print, Kind } from 'graphql'
 import { decode as msgpackDecode } from '@msgpack/msgpack'
 import type { BinaryTransferManifest } from '../shared/manifest.js'
 import type { SelectionTree } from '../shared/selection-encoder.js'
@@ -84,6 +84,13 @@ export function BinaryTransferPlugin(
 
           // Reconstruct the DocumentNode and inject it
           const doc = decodeSelection(selectionTree, operationType, manifest)
+
+          // Prune variable definitions and field arguments that the client
+          // didn't provide values for. The decoder creates variables for ALL
+          // manifest args, but the client only sends values for args it uses.
+          const providedVars = new Set(Object.keys(decoded.v ?? {}))
+          pruneUnprovidedVars(doc, providedVars)
+
           request.query = print(doc)
 
           // Pass through variables
@@ -129,6 +136,40 @@ export function BinaryTransferPlugin(
           }
         }
       } satisfies GraphQLRequestListener<BaseContext>
+    }
+  }
+}
+
+/**
+ * Remove variable definitions and field arguments from the reconstructed
+ * DocumentNode that don't have corresponding values in the provided variables.
+ * This prevents GraphQL validation errors for optional args with defaults
+ * that the client didn't explicitly provide.
+ */
+function pruneUnprovidedVars(doc: any, provided: Set<string>): void {
+  const opDef = doc.definitions[0]
+  if (opDef.variableDefinitions) {
+    opDef.variableDefinitions = opDef.variableDefinitions.filter(
+      (vd: any) => provided.has(vd.variable.name.value)
+    )
+  }
+  if (opDef.selectionSet) {
+    pruneFieldArgs(opDef.selectionSet, provided)
+  }
+}
+
+function pruneFieldArgs(selectionSet: any, provided: Set<string>): void {
+  for (const sel of selectionSet.selections) {
+    if (sel.kind === Kind.FIELD) {
+      if (sel.arguments) {
+        sel.arguments = sel.arguments.filter(
+          (arg: any) => arg.value.kind !== Kind.VARIABLE || provided.has(arg.value.name.value)
+        )
+        if (sel.arguments.length === 0) sel.arguments = undefined
+      }
+      if (sel.selectionSet) pruneFieldArgs(sel.selectionSet, provided)
+    } else if (sel.kind === Kind.INLINE_FRAGMENT) {
+      if (sel.selectionSet) pruneFieldArgs(sel.selectionSet, provided)
     }
   }
 }

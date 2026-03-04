@@ -21,7 +21,8 @@ export function decodeSelection(
     : manifest.roots.query
 
   const collectedVars = new Map<string, string>()
-  const selectionSet = decodeSelectionSet(tree, rootTypeName, manifest, collectedVars)
+  const counter = { value: 0 }
+  const selectionSet = decodeSelectionSet(tree, rootTypeName, manifest, collectedVars, counter)
 
   const variableDefinitions: VariableDefinitionNode[] = []
   for (const [varName, typeName] of collectedVars) {
@@ -49,7 +50,8 @@ function decodeSelectionSet(
   tree: SelectionTree,
   parentTypeName: string,
   manifest: BinaryTransferManifest,
-  collectedVars: Map<string, string>
+  collectedVars: Map<string, string>,
+  counter: { value: number }
 ): SelectionSetNode {
   const parentType = manifest.types[parentTypeName]
   const selections: (FieldNode | InlineFragmentNode)[] = []
@@ -57,7 +59,7 @@ function decodeSelectionSet(
   for (const node of tree) {
     if (typeof node === 'number') {
       const field = parentType.fields[node]
-      selections.push(makeFieldNode(field.name, field, collectedVars))
+      selections.push(makeFieldNode(field.name, field, collectedVars, counter))
     } else if (Array.isArray(node)) {
       const [fieldIdx, sub] = node
       const field = parentType.fields[fieldIdx]
@@ -81,7 +83,8 @@ function decodeSelectionSet(
             typeSub as SelectionTree,
             typeName,
             manifest,
-            collectedVars
+            collectedVars,
+            counter
           )
 
           typeConditions.push({
@@ -98,7 +101,7 @@ function decodeSelectionSet(
         }
 
         selections.push({
-          ...makeFieldNode(field.name, field, collectedVars),
+          ...makeFieldNode(field.name, field, collectedVars, counter),
           selectionSet: {
             kind: Kind.SELECTION_SET,
             selections: typeConditions
@@ -106,12 +109,13 @@ function decodeSelectionSet(
         } as FieldNode)
       } else {
         selections.push({
-          ...makeFieldNode(field.name, field, collectedVars),
+          ...makeFieldNode(field.name, field, collectedVars, counter),
           selectionSet: decodeSelectionSet(
             sub as SelectionTree,
             field.type,
             manifest,
-            collectedVars
+            collectedVars,
+            counter
           )
         } as FieldNode)
       }
@@ -124,17 +128,19 @@ function decodeSelectionSet(
 function makeFieldNode(
   fieldName: string,
   field: { args?: Array<{ name: string; type: string }> },
-  collectedVars: Map<string, string>
+  collectedVars: Map<string, string>,
+  counter: { value: number }
 ): FieldNode {
   const args: ArgumentNode[] = []
 
   if (field.args?.length) {
     for (const arg of field.args) {
-      collectedVars.set(arg.name, arg.type)
+      const varName = `v${counter.value++}`
+      collectedVars.set(varName, arg.type)
       args.push({
         kind: Kind.ARGUMENT,
         name: { kind: Kind.NAME, value: arg.name },
-        value: { kind: Kind.VARIABLE, name: { kind: Kind.NAME, value: arg.name } }
+        value: { kind: Kind.VARIABLE, name: { kind: Kind.NAME, value: varName } }
       })
     }
   }

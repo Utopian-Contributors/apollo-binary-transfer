@@ -4,7 +4,7 @@ import {
   type Operation,
   type FetchResult
 } from '@apollo/client/core'
-import { type DocumentNode, type FieldNode, Kind } from 'graphql'
+import { type DocumentNode, type FieldNode, type FragmentDefinitionNode, Kind } from 'graphql'
 import { encode as msgpackEncode, decode as msgpackDecode } from '@msgpack/msgpack'
 import type { BinaryTransferManifest } from '../shared/manifest.js'
 import { encodeSelection } from '../shared/selection-encoder.js'
@@ -14,6 +14,29 @@ import {
   HEADER_SCHEMA_HASH,
   HEADER_ERRORS
 } from '../shared/constants.js'
+
+/**
+ * Extract a JS value from a GraphQL AST literal value node.
+ */
+function extractLiteralValue(node: any): any {
+  switch (node.kind) {
+    case Kind.STRING: return node.value
+    case Kind.INT: return parseInt(node.value, 10)
+    case Kind.FLOAT: return parseFloat(node.value)
+    case Kind.BOOLEAN: return node.value
+    case Kind.NULL: return null
+    case Kind.ENUM: return node.value
+    case Kind.LIST: return node.values.map(extractLiteralValue)
+    case Kind.OBJECT: {
+      const obj: Record<string, any> = {}
+      for (const field of node.fields) {
+        obj[field.name.value] = extractLiteralValue(field.value)
+      }
+      return obj
+    }
+    default: return null
+  }
+}
 
 export interface BinaryTransferLinkOptions {
   uri: string
@@ -69,8 +92,9 @@ export class BinaryTransferLink extends ApolloLink {
       o: operationType
     }
 
-    if (operation.variables && Object.keys(operation.variables).length > 0) {
-      requestBody.v = operation.variables
+    const remapped = this.remapVariables(operation.query, operation.variables ?? {})
+    if (Object.keys(remapped).length > 0) {
+      requestBody.v = remapped
     }
 
     const binaryBody = msgpackEncode(requestBody)
@@ -137,6 +161,185 @@ export class BinaryTransferLink extends ApolloLink {
     throw new Error(
       `[apollo-binary-transfer] Unexpected content-type: ${contentType}`
     )
+  }
+
+  /**
+   * Remap operation variables to counter-based names (v0, v1, ...) that match
+   * the server decoder's variable naming. Both sides walk the selection tree
+   * in the same deterministic order, so the counter values align.
+   */
+  private remapVariables(
+    document: DocumentNode,
+    variables: Record<string, any>
+  ): Record<string, any> {
+    const remapped: Record<string, any> = {}
+    const fragments = new Map<string, FragmentDefinitionNode>()
+
+    for (const def of document.definitions) {
+      if (def.kind === Kind.FRAGMENT_DEFINITION) {
+        fragments.set(def.name.value, def)
+      }
+    }
+
+    const operation = document.definitions.find(
+      d => d.kind === Kind.OPERATION_DEFINITION
+    )
+    if (!operation || operation.kind !== Kind.OPERATION_DEFINITION) return variables
+
+    const operationType = operation.operation === 'mutation' ? 1 : 0
+    const rootTypeName = operationType === 1
+      ? this.manifest.roots.mutation!
+      : this.manifest.roots.query
+
+    const counter = { value: 0 }
+    this.collectArgValues(
+      operation.selectionSet.selections,
+      rootTypeName,
+      variables,
+      remapped,
+      fragments,
+      counter
+    )
+
+    return remapped
+  }
+
+  private collectArgValues(
+    selections: readonly any[],
+    parentTypeName: string,
+    originalVars: Record<string, any>,
+    remapped: Record<string, any>,
+    fragments: Map<string, FragmentDefinitionNode>,
+    counter: { value: number }
+  ): void {
+    const parentType = this.manifest.types[parentTypeName]
+    if (!parentType) return
+
+    const fieldIndex = new Map<string, number>()
+    parentType.fields.forEach((f, i) => fieldIndex.set(f.name, i))
+
+    for (const sel of selections) {
+      if (sel.kind === Kind.FIELD) {
+        const field = sel as FieldNode
+        const name = field.name.value
+        if (name === '__typename') continue
+
+        const idx = fieldIndex.get(name)
+        if (idx === undefined) continue
+        const fieldDef = parentType.fields[idx]
+
+        // Build AST arg lookup for this field
+        const astArgMap = new Map<string, any>()
+        if (field.arguments) {
+          for (const astArg of field.arguments) {
+            astArgMap.set(astArg.name.value, astArg)
+          }
+        }
+
+        // Iterate ALL manifest args in order (matching the decoder's counter)
+        if (fieldDef.args?.length) {
+          for (const manifestArg of fieldDef.args) {
+            const varName = `v${counter.value++}`
+            const astArg = astArgMap.get(manifestArg.name)
+            if (astArg) {
+              if (astArg.value.kind === Kind.VARIABLE) {
+                const originalVarName = (astArg.value as any).name.value
+                if (originalVarName in originalVars) {
+                  remapped[varName] = originalVars[originalVarName]
+                }
+              } else {
+                remapped[varName] = extractLiteralValue(astArg.value)
+              }
+            }
+          }
+        }
+
+        // Recurse into sub-selections
+        if (fieldDef.isComposite && field.selectionSet) {
+          if (fieldDef.isUnion) {
+            // Sort union type conditions by type index to match decoder's
+            // Object.entries order (numeric keys in ascending order)
+            const unionMembers = this.manifest.unions[fieldDef.type]
+            const typeConditions: Array<{
+              typeIdx: number
+              typeName: string
+              selections: readonly any[]
+            }> = []
+
+            for (const subSel of field.selectionSet.selections) {
+              if (subSel.kind === Kind.INLINE_FRAGMENT && subSel.typeCondition) {
+                const typeName = subSel.typeCondition.name.value
+                const typeIdx = unionMembers.indexOf(typeName)
+                if (typeIdx !== -1) {
+                  typeConditions.push({
+                    typeIdx,
+                    typeName,
+                    selections: subSel.selectionSet.selections
+                  })
+                }
+              }
+              if (subSel.kind === Kind.FRAGMENT_SPREAD) {
+                const frag = fragments.get(subSel.name.value)
+                if (frag?.typeCondition) {
+                  const typeName = frag.typeCondition.name.value
+                  const typeIdx = unionMembers.indexOf(typeName)
+                  if (typeIdx !== -1) {
+                    typeConditions.push({
+                      typeIdx,
+                      typeName,
+                      selections: frag.selectionSet.selections
+                    })
+                  }
+                }
+              }
+            }
+
+            typeConditions.sort((a, b) => a.typeIdx - b.typeIdx)
+
+            for (const { typeName, selections: sels } of typeConditions) {
+              this.collectArgValues(
+                sels,
+                typeName,
+                originalVars,
+                remapped,
+                fragments,
+                counter
+              )
+            }
+          } else {
+            this.collectArgValues(
+              field.selectionSet.selections,
+              fieldDef.type,
+              originalVars,
+              remapped,
+              fragments,
+              counter
+            )
+          }
+        }
+      } else if (sel.kind === Kind.INLINE_FRAGMENT) {
+        this.collectArgValues(
+          sel.selectionSet.selections,
+          sel.typeCondition?.name.value ?? parentTypeName,
+          originalVars,
+          remapped,
+          fragments,
+          counter
+        )
+      } else if (sel.kind === Kind.FRAGMENT_SPREAD) {
+        const frag = fragments.get(sel.name.value)
+        if (frag) {
+          this.collectArgValues(
+            frag.selectionSet.selections,
+            frag.typeCondition.name.value,
+            originalVars,
+            remapped,
+            fragments,
+            counter
+          )
+        }
+      }
+    }
   }
 
   /**
