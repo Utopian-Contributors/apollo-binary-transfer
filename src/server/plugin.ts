@@ -43,7 +43,7 @@ export function BinaryTransferPlugin(
       if (liveSchemaHash !== manifest.schemaHash) {
         console.warn(
           `[apollo-binary-transfer] Schema hash mismatch.\n` +
-          `  Manifest: ${manifest.schemaHash} (${manifest.generatedAt})\n` +
+          `  Manifest: ${manifest.schemaHash}\n` +
           `  Live:     ${liveSchemaHash}\n` +
           `  Positional encoding may be incorrect. Regenerate the manifest.`
         )

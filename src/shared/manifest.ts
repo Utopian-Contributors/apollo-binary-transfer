@@ -20,9 +20,6 @@ export interface BinaryTransferManifest {
   /** Truncated SHA-256 of the sorted schema SDL. */
   schemaHash: string
 
-  /** ISO timestamp. For debugging. */
-  generatedAt: string
-
   /**
    * Every object type and interface in the schema.
    * Keys are type names. Fields within each type are alphabetically sorted.
@@ -89,7 +86,6 @@ export function generateManifest(schema: GraphQLSchema): BinaryTransferManifest 
   const manifest: BinaryTransferManifest = {
     version: MANIFEST_VERSION,
     schemaHash,
-    generatedAt: new Date().toISOString(),
     types: {},
     unions: {},
     roots: {

@@ -13,11 +13,6 @@ describe('generateManifest — structure', () => {
     expect(TEST_MANIFEST.schemaHash).toMatch(/^[0-9a-f]{16}$/)
   })
 
-  it('produces generatedAt timestamp', () => {
-    const date = new Date(TEST_MANIFEST.generatedAt)
-    expect(date.getTime()).not.toBeNaN()
-  })
-
   it('includes roots.query', () => {
     expect(TEST_MANIFEST.roots.query).toBe('Query')
   })
@@ -151,7 +146,7 @@ describe('generateManifest — arguments', () => {
 })
 
 describe('generateManifest — determinism', () => {
-  it('same schema produces same manifest (excluding generatedAt)', () => {
+  it('same schema produces same manifest', () => {
     const schema = buildSchema(SCHEMA_SDL)
     const m1 = generateManifest(schema)
     const m2 = generateManifest(schema)
